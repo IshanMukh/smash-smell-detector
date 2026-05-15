@@ -1,0 +1,51 @@
+{
+  "name": "smash-smell-detector",
+  "publisher": "smashdev",
+  "displayName": "SMASH - Architecture Smell Detector",
+  "description": "Detects class-level architectural smells in Java code using LLM analysis",
+  "version": "1.0.0",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": ["Other"],
+  "activationEvents": [
+    "onLanguage:java",
+  "onCommand:smash.analyzeFile"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "smash.analyzeFile",
+        "title": "SMASH: Analyze Current Java File for Architecture Smells"
+      }
+    ],
+    "configuration": {
+      "title": "SMASH Smell Detector",
+      "properties": {
+        "smash.backendUrl": {
+          "type": "string",
+          "default": "http://localhost:5000",
+          "description": "URL of the SMASH backend server"
+        },
+        "smash.enableOnSave": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically analyze Java files on Ctrl+S"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.85.0",
+    "@types/node": "^20.0.0",
+    "typescript": "^5.3.0",
+    "@vscode/vsce": "^2.22.0"
+  }
+}
