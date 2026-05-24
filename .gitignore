@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.env
+venv/
+feedback_store.json
+
+# Node / VS Code Extension
+node_modules/
+out/
+*.vsix
+
+# OS
+.DS_Store
+Thumbs.db
