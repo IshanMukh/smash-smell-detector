@@ -1,0 +1,33 @@
+# Architecture Decision Record — akhq_7223.java
+# Project: AKHQ (Kafka HQ) — Cluster, Consumer Group and Topic Repository Layer
+# ─────────────────────────────────────────────────────────────────────────────
+
+## ADR-001: AbstractKafkaWrapper caches all Kafka operation results in memory
+Decision: AbstractKafkaWrapper was designed to cache results of all Kafka AdminClient calls (topics, consumer groups, configs, ACLs, log dirs) in local HashMaps per cluster ID.
+Reason: Reducing repeated network calls to Kafka brokers improves performance for repeated operations within the same request scope.
+Consequence: The class manages 10+ cache maps alongside the actual operation logic, growing into a God Class with responsibility for both caching strategy and Kafka API wrapping across 8 operational domains.
+
+## ADR-002: KafkaModule provides all connection types from one singleton
+Decision: All Kafka connection types (AdminClient, Consumer, Producer, SchemaRegistry, Connect, KsqlDB) are created and managed by a single KafkaModule singleton.
+Reason: A single point of connection management ensures all components use consistent cluster configuration and credential handling.
+Consequence: KafkaModule is depended upon by nearly every other component in the system. It is a Hub-Like Dependency — changes to it affect the entire codebase.
+
+## ADR-003: ConsumerGroupRepository resolves all group data in one method
+Decision: The findByName method in ConsumerGroupRepository was designed to fetch group descriptions, offsets, and topic partition offsets all in one chained operation.
+Reason: Returning a fully populated ConsumerGroup object in one call simplifies controller code.
+Consequence: The method has complex nested stream operations and depends on KafkaModule, AbstractKafkaWrapper, AuditModule, and ApplicationContext simultaneously, showing Unstable Dependency characteristics.
+
+## ADR-004: ClusterRepository delegates entirely to AbstractKafkaWrapper
+Decision: ClusterRepository was kept as a thin wrapper that delegates the single get() operation directly to AbstractKafkaWrapper.
+Reason: Consistent repository pattern across all domain objects even when the operation is simple.
+Consequence: This is a healthy design — no smell detected in ClusterRepository itself.
+
+## ADR-005: AuditModule serializes and publishes all audit events to Kafka
+Decision: All audit events across the system (topic create, delete, consumer group changes) are handled by a single AuditModule that serializes them and sends them to a configured Kafka topic.
+Reason: Centralizing audit event publishing ensures consistent formatting and delivery.
+Consequence: AuditModule depends on KafkaModule for producing and SecurityService for user context, making it dependent on volatile collaborators. Unstable Dependency risk if either changes.
+
+---
+# FEEDBACK SECTION
+# Developer feedback from SMASH analysis will be appended below.
+# Format: [timestamp] | class: ClassName | smell: SmellType | verdict: accept/discard | comment: ...

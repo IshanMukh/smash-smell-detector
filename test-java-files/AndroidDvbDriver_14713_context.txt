@@ -1,0 +1,33 @@
+# Architecture Decision Record — AndroidDvbDriver_14713_sev7.java
+# Project: AndroidDvbDriver — DVB-T USB Driver for Android
+# ─────────────────────────────────────────────────────────────
+
+## ADR-001: DeviceController extends Thread to manage device lifecycle
+Decision: DeviceController was implemented as a Thread subclass to run the device polling loop on a background thread.
+Reason: DVB device operations (tuning, signal reading, streaming) are blocking and must not run on the Android main thread.
+Consequence: The class mixes thread lifecycle management, device open/close, signal quality polling, UI callback invocation, and data stream coordination in one class, showing God Class characteristics.
+
+## ADR-002: DvbFileDevice extends DvbDevice for debug file playback
+Decision: A DvbFileDevice was created that extends DvbDevice to simulate a real USB device by streaming from a local file.
+Reason: Enables testing and debugging without physical DVB hardware.
+Consequence: DvbFileDevice inherits the full DvbDevice abstract hierarchy which was designed for real USB devices. The inheritance chain is deeper than the simplicity of the file device warrants, showing Deep Hierarchy characteristics.
+
+## ADR-003: CxUsbDvbDevice centralizes all USB communication logic
+Decision: CxUsbDvbDevice was designed as a base class for all CX-series USB DVB devices, centralizing USB command sending, I2C communication, GPIO control, streaming control, and power management.
+Reason: Sharing USB-level communication code across different CX-series device variants reduces duplication.
+Consequence: The class has grown to include USB command constants, I2C read/write logic, GPIO tuner control, streaming on/off, power on/off, and an inner I2C adapter class. This is a strong God Class with many distinct responsibilities.
+
+## ADR-004: CxUsbDvbDeviceI2cAdapter is implemented as an inner class
+Decision: The I2C adapter for CxUsb devices was implemented as a private inner class inside CxUsbDvbDevice.
+Reason: The adapter needs direct access to CxUsbDvbDevice's USB communication methods, so an inner class avoids passing references explicitly.
+Consequence: The inner class calls back into the outer class methods (cxusb_ctrl_msg, cxusb_gpio_tuner), creating a tight coupling where the parent type's behaviour depends on its own inner subtype — a visible Cyclic Hierarchy sign.
+
+## ADR-005: USB endpoints are validated in the constructor
+Decision: CxUsbDvbDevice validates USB endpoint addresses and directions in the constructor and throws immediately if they are wrong.
+Reason: Fail-fast behaviour ensures invalid hardware configurations are caught at device open time rather than during data transfer.
+Consequence: This is a healthy design decision — no smell detected here.
+
+---
+# FEEDBACK SECTION
+# Developer feedback from SMASH analysis will be appended below.
+# Format: [timestamp] | class: ClassName | smell: SmellType | verdict: accept/discard | comment: ...

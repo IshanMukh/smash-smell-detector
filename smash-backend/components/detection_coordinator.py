@@ -152,10 +152,15 @@ class DetectionCoordinator:
         # or "Unknown"                → use "Unknown" if empty string after strip
         language = raw_data.get("language", "Unknown").strip() or "Unknown"
 
+        # ── Step 7: Extract and normalise the file path ───────────────────────────────
+        # The file path is sent by the VS Code extension so the backend knows
+        # which context.txt to read for this specific file.
+        file_path = raw_data.get("file_path", "unknown").strip() or "unknown"
         # ── Step 7: Log what was received ─────────────────────────────────────
         print(f"[DetectionCoordinator] Validated payload:")
         print(f"  Class    : {class_name}")
         print(f"  Language : {language}")
+        print(f"  File     : {file_path}")
         print(f"  Code size: {len(code)} characters")
 
         # ── Step 8: Build and return the DetectionRequest ─────────────────────
@@ -165,5 +170,6 @@ class DetectionCoordinator:
         return DetectionRequest(
             code=code,
             class_name=class_name,
-            language=language
+            language=language,
+            file_path=file_path
         )

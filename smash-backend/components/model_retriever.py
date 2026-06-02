@@ -72,8 +72,8 @@ from data.detection_request import DetectionRequest
 # REQUEST_TIMEOUT : Maximum seconds to wait for Ollama to respond.
 #                  300 seconds = 5 minutes. Needed because CPU inference is slow.
 
-OLLAMA_BASE_URL  = "http://localhost:11434/api/generate"
-DEFAULT_MODEL    = "qwen2.5-coder:3b"
+OLLAMA_BASE_URL  = "https://skincare-monogamy-drapery.ngrok-free.dev/api/generate"
+DEFAULT_MODEL    = "llama3.1:8b"
 TEMPERATURE      = 0.1
 MAX_TOKENS       = 2048
 REQUEST_TIMEOUT  = None

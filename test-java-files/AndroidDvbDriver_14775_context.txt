@@ -1,0 +1,33 @@
+# Architecture Decision Record — AndroidDvbDriver_14775_sev7.java
+# Project: AndroidDvbDriver — RTL2832 Frontend Demodulator Driver
+# ─────────────────────────────────────────────────────────────────
+
+## ADR-001: Rtl2832Frontend implements DvbFrontend directly
+Decision: Rtl2832Frontend implements the DvbFrontend interface directly and manages all register-level communication with the RTL2832 demodulator chip.
+Reason: The RTL2832 requires low-level register read/write operations that are specific to this chip. Implementing the interface directly keeps the driver self-contained.
+Consequence: The class accumulates register I/O methods (wr, rd, wrMask, wrDemodReg, rdDemodReg), initialisation logic, tuner type branching, IF frequency calculation, and signal status reading in one place — a clear God Class.
+
+## ADR-002: Multiple overloaded wr() and rd() methods handle register paging
+Decision: Register access is split into multiple overloaded wr() and rd() methods to handle the RTL2832's paged register space — different registers live on different pages and require a page switch before access.
+Reason: The RTL2832 chip has a paged register space and the driver must transparently manage page switches to access the correct register.
+Consequence: There are 5 overloaded wr() variants and 3 overloaded rd() variants. While this is hardware-driven complexity, it makes the class difficult to navigate and increases its size considerably.
+
+## ADR-003: Tuner type is determined at construction time and branched at init
+Decision: The tuner type (E4000, R820T, FC0012 etc.) is passed in at construction and used to select the correct initialisation register set during init().
+Reason: Different tuner chips require different RTL2832 configuration sequences, and the tuner type is known at device open time.
+Consequence: The switch statement in init() will grow every time a new tuner is supported. This is a maintainability concern but is currently manageable.
+
+## ADR-004: Rtl2832Frontend depends on Rtl28xxI2cAdapter for all hardware communication
+Decision: All hardware register access goes through the Rtl28xxI2cAdapter passed in at construction, rather than accessing the USB layer directly.
+Reason: Separating I2C communication from register logic allows the frontend to be tested with a mock adapter.
+Consequence: Rtl2832Frontend depends heavily on Rtl28xxI2cAdapter, Rtl28xxTunerType, DvbTuner, and multiple static data classes simultaneously, showing Hub-Like Dependency characteristics with total connections exceeding 6.
+
+## ADR-005: XTAL frequency is hardcoded as a constant
+Decision: The crystal frequency (28.8 MHz) used for IF frequency calculation is defined as a constant XTAL = 28_800_000L.
+Reason: The RTL2832 chip always uses a 28.8 MHz crystal in the supported hardware variants.
+Consequence: Healthy design — named constant is better than a magic number. No smell here.
+
+---
+# FEEDBACK SECTION
+# Developer feedback from SMASH analysis will be appended below.
+# Format: [timestamp] | class: ClassName | smell: SmellType | verdict: accept/discard | comment: ...

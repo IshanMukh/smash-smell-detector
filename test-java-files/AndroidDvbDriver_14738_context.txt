@@ -1,0 +1,33 @@
+# Architecture Decision Record — AndroidDvbDriver_14738_sev6.java
+# Project: AndroidDvbDriver — CX USB DVB Device Driver Layer
+# ─────────────────────────────────────────────────────────────
+
+## ADR-001: CxUsbDvbDevice uses byte command constants for USB protocol
+Decision: All USB control commands (I2C read/write, GPIO, power, streaming) are defined as byte constants at the top of CxUsbDvbDevice.
+Reason: The CX USB protocol requires specific byte values for each command type. Defining them as named constants makes the code readable and maintainable.
+Consequence: The class accumulates many constants alongside complex logic, contributing to its size and God Class characteristics.
+
+## ADR-002: I2C communication handles three distinct message patterns in one method
+Decision: The masterXfer method in CxUsbDvbDeviceI2cAdapter handles read-only, write-then-read, and write-only I2C patterns in a single method with conditional branching.
+Reason: The I2C protocol requires different byte layouts for each pattern and the CX USB bridge has specific requirements for each case.
+Consequence: The method is complex with deeply nested conditionals and array manipulation for each pattern. Combined with vendor-specific GPIO switching logic at the top, the method handles too many concerns at once.
+
+## ADR-003: GPIO tuner state is tracked with a boolean flag
+Decision: The current state of the GPIO tuner pin is tracked with a gpio_tuner_write_state boolean field and only written to hardware when the state changes.
+Reason: Avoiding redundant GPIO writes reduces USB traffic and device wear.
+Consequence: This is a sensible optimisation — no smell here. However it adds shared mutable state to the class which requires careful synchronisation.
+
+## ADR-004: CxUsbDvbDeviceI2cAdapter is a private inner class of CxUsbDvbDevice
+Decision: Same as ADR-004 in AndroidDvbDriver_14713 — the I2C adapter is an inner class that calls back into the outer class.
+Reason: Avoids passing explicit references to the outer device for USB operations.
+Consequence: Creates a Cyclic Hierarchy between the outer class and its inner subtype. The outer class effectively depends on its own inner child class behaviour.
+
+## ADR-005: MAX_XFER_SIZE is set to 80 bytes
+Decision: The maximum I2C transfer size over USB was capped at 80 bytes.
+Reason: Hardware limitation of the CX USB bridge — larger transfers are not supported.
+Consequence: Healthy design — explicit fail-fast validation at the start of transfer methods using this constant.
+
+---
+# FEEDBACK SECTION
+# Developer feedback from SMASH analysis will be appended below.
+# Format: [timestamp] | class: ClassName | smell: SmellType | verdict: accept/discard | comment: ...

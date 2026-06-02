@@ -1,0 +1,70 @@
+You are analyzing a {language} class for software architectural smell indicators.
+Class name:
+{class_name}
+{language} code:
+{code}
+Task:
+Analyze the class for architecture smell indicators.
+You may identify any architecture smell that is reasonably visible from the given class.
+Do not restrict yourself to only one smell type.
+Possible smell categories may include, but are not limited to:
+- Cyclic Dependency
+- God Component / God Class
+- Hub-Like Dependency
+- Unstable Dependency
+- Cyclic Hierarchy
+- Deep Hierarchy
+- Wide Hierarchy
+Smell guidance:
+1. Cyclic Dependency
+A Cyclic Dependency smell appears when two or more components depend on each other in a cycle. At class level, direct proof of a cycle is often limited because only one class is shown at a time. Report it only if the code gives strong visible signs that the class participates in circular relationships with other components.
+2. God Component / God Class
+A God Component smell appears when a component becomes excessively large and concentrates too much logic. It often has low cohesion, growing complexity, and too many responsibilities. At class level, visible signs may include very large code size, many methods, many fields, many different responsibilities, and strong centralization of behavior.
+3. Hub-Like Dependency
+A Hub-Like Dependency smell appears when a component is highly connected to many other components through many incoming and outgoing dependencies. It often centralizes coordination or logic, can become a unique point of failure, and can increase ripple effects across the system. At class level, visible signs may include many dependencies, many coordinated collaborators, and overly central orchestration.
+4. Unstable Dependency
+An Unstable Dependency smell appears when a component depends on components that are less stable than itself, making it vulnerable to ripple effects and frequent changes. Since full stability analysis normally needs a system dependency graph, report this smell only if there is visible evidence that the class depends heavily on volatile, implementation-heavy, or unstable-looking collaborators.
+5. Cyclic Hierarchy
+A Cyclic Hierarchy smell appears when a supertype depends on one of its own subtypes. This can harm reusability, testability, extensibility, and reliability. Report it only if inheritance and dependency relations in the given code strongly suggest that a parent type knows or relies on its child type.
+6. Deep Hierarchy
+A Deep Hierarchy smell appears when inheritance is excessively deep. This makes behavior harder to predict, increases complexity, complicates change, and can make testing more difficult. At class level, visible signs may include many inheritance levels, repeated overriding, and reliance on behavior inherited from a long chain of supertypes.
+7. Wide Hierarchy
+A Wide Hierarchy smell appears when a hierarchy is too broad and seems to be missing useful intermediate abstractions. This can reduce understandability, extensibility, reusability, and changeability. At class level, visible signs may include many sibling-like variations with weak abstraction structure or signs that the class belongs to an overly broad inheritance family without proper intermediate layers.
+Detection strategy:
+- For God Class: count the number of distinct responsibilities visible in the class. Count injected fields or constructor dependencies. Count public methods. Report if responsibilities exceed 3 or dependencies exceed 5.
+- For Hub-Like Dependency: list all the classes this class depends on (outgoing) and all the classes that appear to depend on it (incoming). Report if total connections exceed 6.
+- For Deep Hierarchy: count inheritance levels visible from extends/implements chains.
+- Always list your evidence explicitly in smell_description. For example: "Class has 9 injected dependencies: KafkaModule, ConfigRepository, AvroToJsonSerializer..." Evidence must be specific, not generic.
+General interpretation rule:
+You are given exactly one {language} class to analyse.
+Analyse only the class named {class_name} shown in the code above.
+For every smell you find, smell_location must be exactly {class_name} — no other class name.
+Be direct and specific in your analysis. If the class has many methods, many dependencies, or many responsibilities, say so clearly and report it.
+Do not hold back if evidence is clearly visible in the code.
+Only return [] if the class has genuinely no visible smell evidence at all.
+Evidence guidance:
+- Prefer smells that are directly supported by the visible code
+- Be cautious with graph-based smells such as Cyclic Dependency, Hub-Like Dependency, and Unstable Dependency
+- Be cautious with hierarchy-based smells such as Cyclic Hierarchy, Deep Hierarchy, and Wide Hierarchy unless inheritance evidence is clearly visible
+If no smell is reasonably visible, return exactly:
+[]
+Return ONLY a valid JSON array.
+Do not write markdown.
+Do not write explanation outside JSON.
+Do not use code fences.
+Each item in the JSON array must have exactly these fields:
+- smell_category
+- smell_severity
+- smell_location
+- smell_description
+- smell_suggestion
+Rules:
+- smell_location must always be exactly {class_name}, not any other class name
+- smell_category must be the most suitable smell name based on the visible evidence
+- smell_severity must be an integer from 1 to 10
+- smell_location must mention the class name
+- smell_description must be short and specific
+- smell_suggestion must be a concrete refactoring suggestion
+- only report smells that have reasonable evidence in the class
+- if multiple smells are clearly visible, return multiple JSON objects"""
+IMPORTANT: Your entire response must be ONLY the JSON array. No text before it. No text after it. Start your response with [ and end with ].

@@ -118,7 +118,8 @@ class SmellDetectionEngine:
         response = requests.post(
             model_config["ollama_url"],
             json=payload,
-            timeout=model_config["timeout"]
+            timeout=model_config["timeout"],
+            headers={"ngrok-skip-browser-warning": "true"}
         )
 
         # ── Step 4: Check for HTTP errors ─────────────────────────────────────
@@ -153,69 +154,37 @@ class SmellDetectionEngine:
         # ── Step 9: Return the updated DetectionRequest ───────────────────────
         return request
 
-    def _parse_llm_response(self, text: str) -> list:
+    def _parse_llm_response(self, raw_response: str) -> list:
         """
-        Parses the raw LLM text response into a Python list.
-
-        Why do we need this?
-        --------------------
-        LLMs are not always perfectly behaved. Even when told
-        to return only JSON, Llama sometimes wraps its response
-        in markdown code fences like:
-            ```json
-            [{...}]
-            ```
-        or adds extra text before/after the JSON array.
-
-        This method cleans all of that up and extracts just
-        the pure JSON array.
-
-        Parameters:
-        -----------
-        text : str
-            Raw text response from the LLM.
-
-        Returns:
-        --------
-        list
-            Parsed list of smell dictionaries.
-            Returns empty list [] if no smells were found.
-
-        Raises:
-        -------
-        ValueError
-            If the LLM response cannot be parsed as JSON.
+        Tries multiple strategies to extract a JSON array from the LLM response.
         """
-
-        # ── Clean up markdown fences ──────────────────────────────────────────
-        # re.sub() finds and replaces text matching a pattern.
-        # r"```(?:json)?" matches: ```json or just ```
-        # We replace them with "" (nothing) — effectively deleting them.
-        # .strip() removes leading/trailing whitespace after deletion.
-        text = re.sub(r"```(?:json)?", "", text).strip()
-
-        # Remove any remaining individual backtick characters
-        text = text.strip("`").strip()
-
-        # ── Search for a JSON array in the cleaned text ───────────────────────
-        # r"\[.*\]" is a pattern that matches anything starting with [
-        # and ending with ] — which is exactly what a JSON array looks like.
-        # re.DOTALL means the .* can match across multiple lines.
-        match = re.search(r"\[.*\]", text, re.DOTALL)
-        if match:
-            # json.loads() converts the JSON text into a Python list
-            return json.loads(match.group())
-
-        # ── Handle empty result ───────────────────────────────────────────────
-        # If the LLM found no smells and returned just []
-        # return an empty Python list. This is the clean "no smells" case.
-        if text.strip() == "[]":
+        if not raw_response or not raw_response.strip():
             return []
 
-        # ── If nothing worked, raise an error ─────────────────────────────────
-        # Include the first 500 characters of the response so we can
-        # see what the LLM actually said and debug the problem.
-        raise ValueError(
-            f"Could not extract JSON array from LLM output.\n"
-            f"First 500 characters of response:\n{text[:500]}"
-        )
+        # Strategy 1: Remove markdown code fences
+        cleaned = re.sub(r'```json\s*', '', raw_response)
+        cleaned = re.sub(r'```\s*', '', cleaned)
+        cleaned = cleaned.strip()
+
+        # Strategy 2: Direct parse if response is already clean JSON
+        try:
+            result = json.loads(cleaned)
+            if isinstance(result, list):
+                return result
+        except json.JSONDecodeError:
+            pass
+
+        # Strategy 3: Find JSON array anywhere in the text using regex
+        array_match = re.search(r'\[.*?\]', cleaned, re.DOTALL)
+        if array_match:
+            try:
+                result = json.loads(array_match.group())
+                if isinstance(result, list):
+                    return result
+            except json.JSONDecodeError:
+                pass
+
+        # Strategy 4: Graceful fallback
+        print(f"[SmellDetectionEngine] WARNING: LLM did not return JSON.")
+        print(f"[SmellDetectionEngine] Raw response preview: {raw_response[:300]}")
+        return []

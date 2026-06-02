@@ -7,154 +7,131 @@
 What is this component?
 ------------------------
 The Feedback Collector receives developer feedback on the
-smell detection results and stores it for future use.
+smell detection results and stores it in the context.txt
+file for that specific source file.
 
 Its job from the C4 diagram:
 "Receives developer feedback from Detection Trigger"
 "sends feedback for knowledge-base update"
-"sends reviewed expert knowledge"
 
 In plain English:
 -----------------
 After the developer sees the smell detection results in VS Code,
-they may want to provide feedback:
-  - "This smell is correct" (approve)
-  - "This is a false positive" (reject)
-  - "The severity should be higher" (adjust)
+they can provide feedback per smell:
+  - Accept  — "this smell is correctly detected"
+  - Discard — "this is a false positive"
+  - Comment — mandatory explanation of their decision
 
-This feedback is valuable because:
-  1. It helps improve the prompt over time (ExpertKnowledgeBase)
-  2. It provides data for evaluating detection quality
-  3. An Architecture Expert can review it and validate
-
-In our current version:
------------------------
-The feedback is collected via a /feedback endpoint and
-saved to a local JSON file (feedback_store.json).
-In a full system this would connect to the ExpertKnowledgeBase
-storage shown in the C4 diagram.
+This feedback is appended to the context.txt file for that
+specific source file. The next time the same file is analysed,
+the ContextRetriever reads this feedback and enriches the LLM
+prompt with it, improving detection quality over time.
 
 Position in pipeline:
 ---------------------
 This component is SEPARATE from the main analysis pipeline.
-It runs when the developer clicks a feedback button
-(future feature in VS Code extension).
+It runs when the developer submits feedback in the VS Code panel.
 
 VS Code Extension → POST /feedback → FeedbackCollector
-                                       → saves to file
-                                       → Architecture Expert reviews
+                                       → appends to context.txt
+                                       → used by ContextRetriever next run
 """
 
 # ── Imports ───────────────────────────────────────────────────────────────────
-import json      # for reading and writing JSON files
-import os        # for checking if the feedback file exists
-from datetime import datetime  # for timestamping each feedback entry
-
-
-# ── EXPERT KNOWLEDGE BASE ─────────────────────────────────────────────────────
-# In the C4 diagram: ExpertKnowledgeBase [Storage: storage]
-# "stores the reusable architectural knowledge that has been reviewed by an expert"
-#
-# In our implementation this is a simple JSON file.
-# Each entry in the file is one piece of developer feedback.
-FEEDBACK_STORE_PATH = "feedback_store.json"
+import os                        # for file path operations
+from datetime import datetime    # for timestamping each feedback entry
 
 
 # ── MODULE: Feedback Collector ────────────────────────────────────────────────
 class FeedbackCollector:
     """
-    Collects and stores developer feedback on smell detection results.
-    Feeds into the ExpertKnowledgeBase for future prompt improvement.
+    Collects developer feedback on smell detection results
+    and appends it to the context.txt for that source file.
 
     C4 Reference: FeedbackCollector [Container: python]
-    Also uses:    ExpertKnowledgeBase [Storage: storage]
     """
 
     def collect(self, feedback_data: dict) -> dict:
         """
-        Receives feedback from the developer and stores it.
+        Validates feedback and appends it to the context.txt
+        file for the specific source file that was analysed.
 
         Parameters:
         -----------
         feedback_data : dict
-            Expected format:
-            {
-                "class_name"     : "Rtl2832Frontend",
-                "smell_category" : "God Class",
-                "is_correct"     : true,
-                "comment"        : "Agreed, this class is too large"
-            }
+            Expected fields:
+              file_path      — absolute path of the source file
+              class_name     — the class where the smell was detected
+              smell_category — the smell type (e.g. God Class)
+              verdict        — "accept" or "discard"
+              comment        — mandatory developer comment
 
         Returns:
         --------
         dict
-            Confirmation that feedback was stored.
+            Confirmation with status, file path, and the entry written.
+
+        Raises:
+        -------
+        ValueError
+            If any required field is missing, empty, or verdict is invalid.
         """
 
-        # ── Step 1: Validate the feedback data ────────────────────────────────
-        if not feedback_data:
-            raise ValueError("Empty feedback data received.")
+        # ── Step 1: Validate all required fields ──────────────────────────────
+        # Every field is required — the extension enforces comment before submit
+        # but we double-check here on the backend as well.
+        required = ["class_name", "smell_category", "verdict", "comment", "file_path"]
+        for field in required:
+            if field not in feedback_data or not str(feedback_data[field]).strip():
+                raise ValueError(f"Missing or empty required field: '{field}'")
 
-        required_fields = ["class_name", "smell_category", "is_correct"]
-        for field in required_fields:
-            if field not in feedback_data:
-                raise ValueError(f"Missing required field in feedback: '{field}'")
+        # ── Step 2: Validate verdict value ────────────────────────────────────
+        verdict = feedback_data["verdict"].lower()
+        if verdict not in ("accept", "discard"):
+            raise ValueError("verdict must be either 'accept' or 'discard'")
 
-        # ── Step 2: Add a timestamp to the feedback ───────────────────────────
-        # We record when the feedback was given so we can track it over time.
-        feedback_entry = {
-            "timestamp"      : datetime.now().isoformat(),
-            "class_name"     : feedback_data["class_name"],
-            "smell_category" : feedback_data["smell_category"],
-            "is_correct"     : feedback_data["is_correct"],
-            "comment"        : feedback_data.get("comment", ""),
-            "reviewed"       : False  # Architecture Expert has not reviewed yet
-        }
+        # ── Step 3: Build the feedback entry string ───────────────────────────
+        # This is the line that gets appended to context.txt.
+        # Format matches what ContextRetriever looks for ("verdict:" keyword).
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-        # ── Step 3: Load existing feedback from the store ─────────────────────
-        # If the feedback file exists, read it.
-        # If it does not exist yet, start with an empty list.
-        if os.path.exists(FEEDBACK_STORE_PATH):
-            with open(FEEDBACK_STORE_PATH, "r") as f:
-                all_feedback = json.load(f)
-        else:
-            all_feedback = []
+        entry = (
+            f"\n[{timestamp}] | "
+            f"class: {feedback_data['class_name']} | "
+            f"smell: {feedback_data['smell_category']} | "
+            f"verdict: {verdict} | "
+            f"comment: {feedback_data['comment'].strip()}"
+        )
 
-        # ── Step 4: Append the new feedback entry ─────────────────────────────
-        all_feedback.append(feedback_entry)
+        # ── Step 4: Find the context.txt path for this source file ────────────
+        # context.txt lives in the same folder as the source file.
+        # Example: akhq_7201.java → akhq_7201_context.txt
+        file_path    = feedback_data["file_path"]
+        source_dir   = os.path.dirname(file_path)
+        source_name  = os.path.splitext(os.path.basename(file_path))[0]
+        context_path = os.path.join(source_dir, f"{source_name}_context.txt")
 
-        # ── Step 5: Save back to the file ─────────────────────────────────────
-        # indent=2 makes the JSON file human-readable (nicely formatted)
-        with open(FEEDBACK_STORE_PATH, "w") as f:
-            json.dump(all_feedback, f, indent=2)
+        # ── Step 5: Append the entry to context.txt ───────────────────────────
+        # "a" mode appends without overwriting existing content.
+        # If context.txt does not exist yet, Python creates it automatically.
+        with open(context_path, "a", encoding="utf-8") as f:
+            f.write(entry)
 
-        # ── Step 6: Log what was stored ───────────────────────────────────────
-        print(f"[FeedbackCollector] Feedback stored for {feedback_entry['class_name']}")
-        print(f"  Smell    : {feedback_entry['smell_category']}")
-        print(f"  Correct  : {feedback_entry['is_correct']}")
-        print(f"  Total feedback entries: {len(all_feedback)}")
+        print(f"[FeedbackCollector] Feedback appended to: {context_path}")
 
-        # ── Step 7: Return confirmation ───────────────────────────────────────
         return {
-            "message"  : "Feedback stored successfully",
-            "timestamp": feedback_entry["timestamp"],
-            "total"    : len(all_feedback)
+            "status" : "saved",
+            "file"   : context_path,
+            "entry"  : entry.strip()
         }
 
     def get_all_feedback(self) -> list:
         """
-        Returns all stored feedback entries.
-        Used by the Architecture Expert to review and validate.
+        Previously read from feedback_store.json.
+        Feedback is now stored per-file in context.txt files
+        alongside each source file being analysed.
 
-        Returns:
-        --------
-        list
-            All feedback entries from the store.
-            Empty list if no feedback has been collected yet.
+        Returns an empty list — feedback is no longer centralised.
+        To read feedback for a specific file, read its context.txt directly.
         """
-
-        if not os.path.exists(FEEDBACK_STORE_PATH):
-            return []
-
-        with open(FEEDBACK_STORE_PATH, "r") as f:
-            return json.load(f)
+        return []

@@ -89,6 +89,11 @@ class DetectionRequest:
     # will still attempt analysis based on the code content alone.
     language: str = "Unknown"
 
+    # ── File path ─────────────────────────────────────────────────────────────────
+    # The absolute path of the file being analysed.
+    # Used by ContextRetriever to find the correct context.txt for this file.
+    # Example: "C:/Users/KIIT0001/Desktop/smash-project-v2/test-java-files/akhq_7201.java"
+    file_path: str = "unknown"
     # ── Architecture context ──────────────────────────────────────────────────
     # The filled-in prompt that will be sent to the LLM.
     # Populated by: ContextRetriever

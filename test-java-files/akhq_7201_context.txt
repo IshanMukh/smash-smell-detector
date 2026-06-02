@@ -1,0 +1,35 @@
+# Architecture Decision Record — akhq_7201.java
+# Project: AKHQ (Kafka HQ) — Record and Topic Management Layer
+# ─────────────────────────────────────────────────────────────
+
+## ADR-001: RecordRepository handles all record operations in one class
+Decision: The RecordRepository class was designed to centralize all Kafka record operations including consuming, producing, searching, copying, tailing, deleting, filtering, and pagination.
+Reason: Centralizing all record access in one repository reduces the number of classes a controller needs to depend on.
+Consequence: The class has grown very large with 9 injected dependencies (KafkaModule, SchemaRegistryRepository, CustomDeserializerRepository, AvroWireFormatConverter, Masker, Environment, and others), making it a strong God Class candidate.
+
+## ADR-002: Record model includes deserialization logic
+Decision: The Record model class was given responsibility for deserializing its own value into a human-readable string via the convertToString() method.
+Reason: Keeping deserialization close to the data made early development faster.
+Consequence: The method handles 6+ formats (Avro, Protobuf, JSON Schema, AWS Glue, Kafka internals, plain string) with deeply nested conditionals, creating mixed responsibilities between data holding and format conversion.
+
+## ADR-003: TopicController exposes all topic and topic-data endpoints
+Decision: A single TopicController was used to expose all REST endpoints for topic management and topic data operations.
+Reason: Grouping all topic-related endpoints in one controller follows a resource-oriented API design.
+Consequence: The controller has 8 injected dependencies and handles operations ranging from topic creation to SSE streaming to file download, making it highly connected to the rest of the system.
+
+## ADR-004: KafkaModule acts as central factory for all Kafka clients
+Decision: KafkaModule was designed as a singleton factory that creates and caches all Kafka-related clients (AdminClient, KafkaConsumer, KafkaProducer, SchemaRegistryClient, ConnectRestClient, KsqlDbClient).
+Reason: Centralizing client creation ensures consistent configuration and connection reuse across the system.
+Consequence: Almost every other component depends on KafkaModule, making it a Hub-Like Dependency. Any change to KafkaModule ripples through the entire system.
+
+## ADR-005: AbstractKafkaWrapper wraps all Kafka AdminClient operations
+Decision: All AdminClient operations (cluster, topics, offsets, consumer groups, log dirs, configs, ACLs) were wrapped in a single abstract class.
+Reason: Abstracting the Kafka client behind a wrapper allows easier mocking in tests and future replacement.
+Consequence: The class became very large covering 8 distinct operational areas, exhibiting God Class characteristics.
+
+---
+# FEEDBACK SECTION
+# Developer feedback from SMASH analysis will be appended below.
+# Format: [timestamp] | class: ClassName | smell: SmellType | verdict: accept/discard | comment: ...
+[2026-06-02 10:57:31] | class: JsonMaskByDefaultMasker | smell: God Class | verdict: accept | comment: This is correct", click Submit. Should show
+[2026-06-02 10:57:40] | class: JsonMaskByDefaultMasker | smell: Hub-Like Dependency | verdict: accept | comment: This is correct", click Submit. Should show

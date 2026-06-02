@@ -29,7 +29,8 @@ to support all languages — the modular structure is fully preserved:
 5. Nothing else needs to change.
 
 ---
-
+**to add llm to ram:**
+ollama run qwen2.5-coder:3b "say hello"
 ## Project Structure
 
 ```

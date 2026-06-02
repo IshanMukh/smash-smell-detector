@@ -11,7 +11,7 @@ feedback_store.json
 node_modules/
 out/
 *.vsix
-
+logs/
 # OS
 .DS_Store
 Thumbs.db

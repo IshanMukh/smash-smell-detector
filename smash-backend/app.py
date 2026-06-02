@@ -22,7 +22,7 @@ Each component maps directly to a box in the C4 diagram.
 
 How the pipeline works:
 -----------------------
-Every time the developer presses Ctrl+S on a Java file:
+Every time the developer presses Ctrl+S on a supported file:
 
   VS Code Extension (DetectionClient)
       ↓  HTTP POST /analyze
@@ -40,6 +40,8 @@ Every time the developer presses Ctrl+S on a Java file:
       ↓
   ResultsPublisher      → formats and returns results
       ↓
+  RunLogger             → saves run info to a timestamped CSV
+      ↓
   VS Code Extension shows notification to developer
 
 C4 Components used in this file:
@@ -49,86 +51,51 @@ C4 Components used in this file:
   - All components are imported from components/ folder
 """
 
-# ── IMPORTS: Flask tools ──────────────────────────────────────────────────────
-# Flask   : creates the web application
-# request : reads incoming JSON data from the extension
-# jsonify : converts Python dict to JSON response
-from flask import Flask, request, jsonify
+# ── IMPORTS ───────────────────────────────────────────────────────────────────
+import os
+import time
 
-# ── IMPORTS: CORS ─────────────────────────────────────────────────────────────
-# CORS allows the VS Code extension (running on a different port)
-# to send requests to our Flask server without being blocked.
+from flask import Flask, request, jsonify
 from flask_cors import CORS
 
-# ── IMPORTS: All pipeline components ──────────────────────────────────────────
-# Each import brings in one component from the components/ folder.
-# Each component maps to one box in the C4 diagram.
-from components.detection_coordinator  import DetectionCoordinator   # validates input
-from components.source_code_retriever  import SourceCodeRetriever    # retrieves code
-from components.context_retriever      import ContextRetriever       # builds prompt
-from components.model_retriever        import ModelRetriever         # gets model config
-from components.smell_detection_engine import SmellDetectionEngine   # runs LLM
-from components.results_publisher      import ResultsPublisher       # formats output
-from components.feedback_collector     import FeedbackCollector      # stores feedback
+from components.detection_coordinator  import DetectionCoordinator
+from components.source_code_retriever  import SourceCodeRetriever
+from components.context_retriever      import ContextRetriever
+from components.model_retriever        import ModelRetriever
+from components.smell_detection_engine import SmellDetectionEngine
+from components.results_publisher      import ResultsPublisher
+from components.feedback_collector     import FeedbackCollector
+from components.run_logger             import RunLogger
 
 
 # ── CREATE FLASK APP ──────────────────────────────────────────────────────────
-# Flask(__name__) creates the application.
-# __name__ tells Flask the name of the current file.
 app = Flask(__name__)
-
-# Enable CORS so the VS Code extension can call this server
 CORS(app)
 
 
 # ── INSTANTIATE ALL COMPONENTS ────────────────────────────────────────────────
-# We create one instance of each component when the server starts.
-# These instances are reused for every request — we do not create
-# new instances on every request (that would be wasteful).
-#
-# Think of these as the "workers" standing ready to process requests.
+# One instance of each component created at startup and reused per request.
 
-# C4: DetectionCoordinator [Component: python]
-detection_coordinator = DetectionCoordinator()
-
-# C4: SourceCodeRetriever [Component: python]
-source_code_retriever = SourceCodeRetriever()
-
-# C4: ContextRetriever [Component: python]
-context_retriever = ContextRetriever()
-
-# C4: ModelRetriever [Component: python]
-model_retriever = ModelRetriever()
-
-# C4: SmellDetectionEngine [Component: python]
+detection_coordinator  = DetectionCoordinator()
+source_code_retriever  = SourceCodeRetriever()
+context_retriever      = ContextRetriever()
+model_retriever        = ModelRetriever()
 smell_detection_engine = SmellDetectionEngine()
-
-# C4: ResultsPublisher [Container: python]
-results_publisher = ResultsPublisher()
-
-# C4: FeedbackCollector [Container: python]
-feedback_collector = FeedbackCollector()
+results_publisher      = ResultsPublisher()
+feedback_collector     = FeedbackCollector()
+run_logger             = RunLogger()
 
 
 # ════════════════════════════════════════════════════════
 #  ROUTE 1: Health Check
-#  C4: Not explicitly in diagram — utility endpoint
 # ════════════════════════════════════════════════════════
 
 @app.route("/health", methods=["GET"])
 def health():
     """
     Simple health check endpoint.
-
-    Purpose:
-    --------
-    Lets us verify the backend is running without triggering
-    any analysis. Open http://localhost:5000/health in a browser
-    to confirm the server is alive.
-
-    Returns:
-    --------
-    JSON: { "status": "ok", "system": "SMASH" }
+    Open http://localhost:5000/health in a browser to confirm
+    the server is alive.
     """
     return jsonify({
         "status": "ok",
@@ -139,7 +106,6 @@ def health():
 # ════════════════════════════════════════════════════════
 #  ROUTE 2: Analyze
 #  C4: Trigger Receiver [Component: python]
-#  "Receives trigger request on code change or pull request"
 # ════════════════════════════════════════════════════════
 
 @app.route("/analyze", methods=["POST"])
@@ -147,74 +113,68 @@ def analyze():
     """
     Main smell detection endpoint — the Trigger Receiver.
 
-    This route is called by the VS Code extension every time
-    the developer presses Ctrl+S on a Java file.
+    Called by the VS Code extension every time the developer
+    presses Ctrl+S on a supported source file.
 
     Request body (JSON):
     --------------------
     {
-        "class_name": "Rtl2832Frontend",
-        "code": "public class Rtl2832Frontend { ... }"
+        "class_name" : "Rtl2832Frontend",
+        "code"       : "public class Rtl2832Frontend { ... }",
+        "language"   : "Java",
+        "file_path"  : "C:/path/to/Rtl2832Frontend.java"
     }
 
     Response (JSON):
     ----------------
     {
         "smells"    : [ { smell fields... }, ... ],
-        "summary"   : "2 smell(s) detected in Rtl2832Frontend: ...",
+        "summary"   : "2 smell(s) detected in ...",
         "class_name": "Rtl2832Frontend",
         "count"     : 2
     }
-
-    C4 Reference: Trigger Receiver [Component: python]
     """
 
-    # ── Log that a trigger was received ───────────────────────────────────────
     print("\n" + "="*60)
     print("[TriggerReceiver] Trigger received from VS Code extension")
     print("="*60)
 
-    # ── Read the raw JSON from the request ────────────────────────────────────
-    # force=True means: even if Content-Type header is missing, try to parse as JSON
+    # ── Start the run timer ───────────────────────────────────────────────────
+    # We measure from the moment the request arrives to when results are sent.
+    run_start = time.time()
+
     raw_data = request.get_json(force=True)
 
     # ════════════════════════════════════════════════════════
     #  PIPELINE STEP 1: Detection Coordinator
-    #  Validates and normalises the trigger payload
     # ════════════════════════════════════════════════════════
     try:
         print("\n[Pipeline] Step 1: Detection Coordinator")
         detection_request = detection_coordinator.validate_and_build(raw_data)
     except ValueError as e:
-        # If validation fails, return a 400 Bad Request error immediately
-        # No point running the rest of the pipeline with bad data
         print(f"[DetectionCoordinator] Validation failed: {e}")
         return jsonify({"error": str(e)}), 400
 
     # ════════════════════════════════════════════════════════
     #  PIPELINE STEP 2: Source Code Retriever
-    #  Retrieves and logs source code artifacts
     # ════════════════════════════════════════════════════════
     print("\n[Pipeline] Step 2: Source Code Retriever")
     detection_request = source_code_retriever.retrieve(detection_request)
 
     # ════════════════════════════════════════════════════════
     #  PIPELINE STEP 3: Context Retriever
-    #  Fetches architecture context and builds the prompt
     # ════════════════════════════════════════════════════════
     print("\n[Pipeline] Step 3: Context Retriever")
     detection_request = context_retriever.retrieve_and_build_prompt(detection_request)
 
     # ════════════════════════════════════════════════════════
     #  PIPELINE STEP 4: Model Retriever
-    #  Gets the LLM model configuration
     # ════════════════════════════════════════════════════════
     print("\n[Pipeline] Step 4: Model Retriever")
     detection_request, model_config = model_retriever.retrieve_model_config(detection_request)
 
     # ════════════════════════════════════════════════════════
     #  PIPELINE STEP 5: Smell Detection Engine
-    #  Calls the LLM and gets smell results
     # ════════════════════════════════════════════════════════
     print("\n[Pipeline] Step 5: Smell Detection Engine")
     try:
@@ -223,11 +183,8 @@ def analyze():
             model_config
         )
     except Exception as e:
-        # If LLM call fails for any reason — Ollama offline, timeout, etc.
-        # We catch it here and return a clear error message to the extension.
         import requests as req_lib
         if isinstance(e, req_lib.exceptions.ConnectionError):
-            # Ollama is not running
             return jsonify({
                 "error": (
                     "Cannot connect to Ollama. "
@@ -235,56 +192,63 @@ def analyze():
                 )
             }), 503
         elif isinstance(e, req_lib.exceptions.Timeout):
-            # Ollama took too long
             return jsonify({
                 "error": "Ollama request timed out. The model may still be loading. Try again."
             }), 504
         else:
-            # Any other error
             return jsonify({"error": f"Smell detection failed: {str(e)}"}), 500
 
     # ════════════════════════════════════════════════════════
     #  PIPELINE STEP 6: Results Publisher
-    #  Formats and returns results to VS Code extension
     # ════════════════════════════════════════════════════════
     print("\n[Pipeline] Step 6: Results Publisher")
     result = results_publisher.publish(detection_request)
+
+    # ════════════════════════════════════════════════════════
+    #  PIPELINE STEP 7: Run Logger
+    #  Saves run metadata and results to a timestamped CSV
+    # ════════════════════════════════════════════════════════
+    print("\n[Pipeline] Step 7: Run Logger")
+    run_duration = time.time() - run_start
+    project_name = os.path.basename(detection_request.file_path or "unknown")
+
+    run_logger.log_run(
+        project_name      = project_name,
+        language          = detection_request.language,
+        model_name        = detection_request.model_name or "unknown",
+        smells            = result.get("smells", []),
+        run_duration_secs = run_duration,
+        analysed_classes  = [detection_request.class_name]
+    )
 
     print("\n" + "="*60)
     print(f"[Pipeline] Complete. Sending results to VS Code extension.")
     print("="*60 + "\n")
 
-    # Return the formatted result as JSON to the VS Code extension
     return jsonify(result)
 
 
 # ════════════════════════════════════════════════════════
-#  ROUTE 3: Feedback
+#  ROUTE 3: Feedback — POST
 #  C4: FeedbackCollector [Container: python]
-#  "Receives developer feedback from Detection Trigger"
 # ════════════════════════════════════════════════════════
 
 @app.route("/feedback", methods=["POST"])
 def feedback():
     """
-    Feedback collection endpoint.
-
-    Receives developer feedback on smell detection results
-    and stores it in the ExpertKnowledgeBase for future
-    prompt improvement and expert review.
+    Receives developer feedback on smell detection results.
+    Appends it to the context.txt for that source file.
 
     Request body (JSON):
     --------------------
     {
-        "class_name"     : "Rtl2832Frontend",
+        "file_path"      : "C:/path/to/akhq_7201.java",
+        "class_name"     : "RecordRepository",
         "smell_category" : "God Class",
-        "is_correct"     : true,
-        "comment"        : "Agreed, this class is too large"
+        "verdict"        : "accept",
+        "comment"        : "Agreed, this class does too many things"
     }
-
-    C4 Reference: FeedbackCollector [Container: python]
     """
-
     print("[TriggerReceiver] Feedback received from VS Code extension")
     raw_data = request.get_json(force=True)
 
@@ -297,13 +261,15 @@ def feedback():
         return jsonify({"error": f"Failed to store feedback: {str(e)}"}), 500
 
 
+# ════════════════════════════════════════════════════════
+#  ROUTE 4: Feedback — GET
+# ════════════════════════════════════════════════════════
+
 @app.route("/feedback", methods=["GET"])
 def get_feedback():
     """
     Returns all stored feedback entries.
     Used by the Architecture Expert to review and validate.
-
-    C4 Reference: Architecture Expert [Practitioner]
     """
     all_feedback = feedback_collector.get_all_feedback()
     return jsonify({
@@ -317,23 +283,19 @@ def get_feedback():
 # ════════════════════════════════════════════════════════
 
 if __name__ == "__main__":
-    # Print startup banner so we know the server is running
     print("=" * 60)
     print("  SMASH Backend — Software Architecture Smell Hunter")
     print("  Starting on http://localhost:5000")
     print("=" * 60)
     print("  Components loaded:")
-    print("    ✓ Detection Coordinator")
-    print("    ✓ Source Code Retriever")
-    print("    ✓ Context Retriever")
-    print("    ✓ Model Retriever")
-    print("    ✓ Smell Detection Engine")
-    print("    ✓ Results Publisher")
-    print("    ✓ Feedback Collector")
+    print("    checkmark Detection Coordinator")
+    print("    checkmark Source Code Retriever")
+    print("    checkmark Context Retriever")
+    print("    checkmark Model Retriever")
+    print("    checkmark Smell Detection Engine")
+    print("    checkmark Results Publisher")
+    print("    checkmark Feedback Collector")
+    print("    checkmark Run Logger")
     print("=" * 60)
 
-    # app.run() starts the Flask development server
-    # host="0.0.0.0" : listen on all network addresses (not just localhost)
-    # port=5000       : run on port 5000
-    # debug=False     : do not auto-restart on code changes
     app.run(host="0.0.0.0", port=5000, debug=False)
