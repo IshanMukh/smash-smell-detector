@@ -36,7 +36,9 @@ import psutil
 from datetime import datetime
 
 
-# Logs folder — created automatically if it does not exist
+# LOGS_DIR resolves to smash-backend/logs/ using an absolute path.
+# os.path.dirname is called twice — once to go up from components/ to smash-backend/.
+# The folder is created automatically on first run by os.makedirs() in log_run().
 LOGS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "logs")
 
 
@@ -81,7 +83,12 @@ class RunLogger:
         # Example: 2026-05-22_14-35-42.csv
         timestamp_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         csv_path = os.path.join(LOGS_DIR, f"{timestamp_str}.csv")
-
+        # ── Step 3: Collect machine information ───────────────────────────────
+        # Machine info is recorded so runs can be compared across different
+        # environments — for example, comparing analysis speed on a laptop CPU
+        # vs a Google Colab GPU, or tracking which OS the backend was running on.
+        # psutil.virtual_memory().total gives total RAM in bytes — we convert
+        # to GB by dividing twice by 1024 (bytes → KB → MB → GB).
         # ── Step 3: Collect machine information ───────────────────────────────
         machine_os       = f"{platform.system()} {platform.version()}"
         machine_cpu      = platform.processor() or platform.machine()

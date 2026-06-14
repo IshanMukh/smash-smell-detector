@@ -1,32 +1,7 @@
 import * as vscode from 'vscode';
 import * as http from 'http';
  
-// ─────────────────────────────────────────────────────────────────────────────
-//  SMASH Extension — extension.ts
-//  Version 3.0 — Per-class analysis + Feedback UI + Context-aware prompts
-// ─────────────────────────────────────────────────────────────────────────────
-//
-//  Changes in this version:
-//
-//  1. analyzeWithBackend() now sends file_path in the payload so the backend
-//     knows which context.txt to read for this specific file.
-//
-//  2. analyzeAllClasses() now accepts and passes file_path to each backend call.
-//
-//  3. showSmellNotification() now accepts filePath and passes it to buildDetailHtml().
-//
-//  4. buildDetailHtml() now shows per-smell Accept/Discard buttons with a
-//     mandatory comment box. On submit, feedback is POSTed to /feedback and
-//     appended to the file's context.txt on the backend.
-//
-//  5. Both the save listener and manual command now pass doc.fileName /
-//     editor.document.fileName as filePath to analyzeAllClasses().
-// ─────────────────────────────────────────────────────────────────────────────
  
- 
-// ─────────────────────────────────────────────
-//  Types
-// ─────────────────────────────────────────────
  
 // SmellResult represents one detected architectural smell.
 // This type must match the JSON fields returned by the backend.
@@ -117,6 +92,8 @@ function detectLanguage(languageId: string): string {
  *   Array of detected class names.
  *   Falls back to ['UnknownClass'] if no class declaration is found.
  */
+
+
 function extractClassNames(code: string, languageId: string): string[] {
   let classRegex: RegExp;
  
@@ -284,7 +261,10 @@ async function analyzeAllClasses(
   filePath: string
 ): Promise<SmellResult[]> {
   const allSmells: SmellResult[] = [];
- 
+  // We loop through every class found in the file.
+  // Each class gets its own backend request with only its own code.
+  // This ensures the LLM never sees two classes at once, which was
+  // causing it to assign wrong class names to the smell_location field.
   for (const className of classNames) {
     // Extract just this class's code from the full file
     const classCode = extractClassCode(fullCode, className);
@@ -534,6 +514,19 @@ export function activate(context: vscode.ExtensionContext): void {
   console.log('SMASH Smell Detector is now active.');
  
   // ── Trigger 1: Ctrl+S auto-analysis ──────────────────────────────────────
+  //
+  // onDidSaveTextDocument fires every time any file is saved in VS Code.
+  // We check two things before doing anything:
+  //   (a) Is SMASH enabled in settings? (smash.enableOnSave)
+  //   (b) Is the file written in a language SMASH supports?
+  //
+  // If both checks pass, we:
+  //   1. Extract all class names from the file
+  //   2. Analyse each class individually (one backend call per class)
+  //   3. Combine all results and show the notification
+  //
+  // fileName = short name for display (e.g. akhq_7201.java)
+  // filePath = full absolute path sent to backend so it can find context.txt
   const saveListener = vscode.workspace.onDidSaveTextDocument(async (doc) => {
     const config  = vscode.workspace.getConfiguration('smash');
     const enabled: boolean = config.get('enableOnSave', true);
@@ -570,6 +563,10 @@ export function activate(context: vscode.ExtensionContext): void {
   });
  
   // ── Trigger 2: Manual command via Command Palette ─────────────────────────
+  //
+  // The developer can run: Ctrl+Shift+P → "SMASH: Analyze Current File"
+  // This does exactly the same thing as the save listener but fires on demand.
+  // Useful when the developer wants to re-analyse without making a change.
   const manualCommand = vscode.commands.registerCommand('smash.analyzeFile', async () => {
     const editor = vscode.window.activeTextEditor;
  

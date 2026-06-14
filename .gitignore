@@ -15,3 +15,5 @@ logs/
 # OS
 .DS_Store
 Thumbs.db
+# Python test artifacts
+*.log

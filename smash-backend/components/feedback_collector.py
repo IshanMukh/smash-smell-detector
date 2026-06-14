@@ -124,7 +124,11 @@ class FeedbackCollector:
             "file"   : context_path,
             "entry"  : entry.strip()
         }
-
+    # get_all_feedback() is kept here because app.py has a GET /feedback route
+    # that calls it. Removing the method would break that route.
+    # In the future this could be updated to aggregate feedback from all
+    # context.txt files across the project if needed.
+    
     def get_all_feedback(self) -> list:
         """
         Previously read from feedback_store.json.

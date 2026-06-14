@@ -16,15 +16,15 @@ prompts and model configuration"
 In plain English:
 -----------------
 By the time this component runs, the DetectionRequest already has:
-  - code          : the Java source code (from SourceCodeRetriever)
-  - class_name    : the Java class name (from DetectionCoordinator)
+  - code          : the source code of one class (from SourceCodeRetriever)
+  - class_name    : the name of that class (from DetectionCoordinator)
   - prompt        : the filled analysis prompt (from ContextRetriever)
   - model_name    : the LLM model to use (from ModelRetriever)
 
 This component:
   1. Takes all of that from the DetectionRequest
   2. Sends the prompt to Ollama (the LLM) via HTTP POST
-  3. Waits for Ollama to run Llama and return a response
+  3. Waits for Ollama to run the model and return a response
   4. Parses the raw LLM text into a clean Python list of smells
   5. Stores the results back into the DetectionRequest
 
@@ -114,6 +114,11 @@ class SmellDetectionEngine:
         # requests.post() sends the payload to Ollama's generate endpoint.
         # timeout= means: if Ollama does not respond within this many seconds,
         # raise a Timeout exception automatically.
+        
+        # The ngrok-skip-browser-warning header is required when routing through
+        # a ngrok tunnel (Google Colab mode). Without it, ngrok intercepts the
+        # request with a browser warning page and returns a 403 error.
+        # This header is harmless when running Ollama locally without ngrok.
         print(f"[SmellDetectionEngine] Sending request to Ollama...")
         response = requests.post(
             model_config["ollama_url"],
@@ -156,7 +161,22 @@ class SmellDetectionEngine:
 
     def _parse_llm_response(self, raw_response: str) -> list:
         """
-        Tries multiple strategies to extract a JSON array from the LLM response.
+        Tries multiple strategies to extract a valid JSON array from
+        the LLM's raw text response.
+
+        Why do we need multiple strategies?
+        ------------------------------------
+        The LLM is instructed to return only a JSON array, but smaller
+        models sometimes wrap their output in markdown code fences
+        (```json ... ```) or add explanatory text before or after the JSON.
+        This method handles all of those cases gracefully.
+
+        Strategy 1 — Remove markdown fences and direct parse
+        Strategy 2 — Search for a JSON array anywhere in the text
+        Strategy 3 — Graceful fallback: return [] and log a warning
+
+        Returns [] if no valid JSON array can be extracted.
+        Never raises an exception — always returns a list.
         """
         if not raw_response or not raw_response.strip():
             return []

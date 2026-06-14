@@ -4,25 +4,42 @@
   C4 Diagram Reference: ContextRetriever [Component: python]
 ========================================================
 
-What changed in this version:
-------------------------------
-Previously the prompt was hardcoded as a string inside this file.
-Now the prompt lives in prompts/prompt.txt and the architecture
-context lives in a context.txt file specific to each project file.
+What does this component do?
+-----------------------------
+This component is responsible for building the final instruction
+that gets sent to the LLM. It does this by combining two sources:
 
-On first run (no feedback yet):
-  final instruction = prompt.txt filled with language, class, code
+  1. prompt.txt  — the base analysis prompt containing smell
+                   definitions, detection strategy, and JSON
+                   output instructions. Always used.
 
-On subsequent runs (feedback exists in context.txt):
-  final instruction = prompt.txt + context.txt filled with language, class, code
+  2. context.txt — a file specific to the source file being
+                   analysed. Contains the Architecture Decision
+                   Record (ADR) for that project and any developer
+                   feedback from previous analysis runs.
+                   Only included if feedback exists.
 
-The final instruction is what gets sent to the LLM.
+First run (no feedback yet):
+  final instruction = prompt.txt filled with {language}, {class_name}, {code}
+
+Subsequent runs (feedback exists in context.txt):
+  final instruction = prompt.txt + context.txt filled with placeholders
+
+Position in pipeline:
+---------------------
+SourceCodeRetriever
+    → ContextRetriever  ← YOU ARE HERE
+    → ModelRetriever
 """
 
 import os
 from data.detection_request import DetectionRequest
 
-# Paths
+# ── Path configuration ────────────────────────────────────────────────────────
+# BACKEND_DIR resolves to the smash-backend/ folder regardless of where
+# the script is called from. PROMPT_PATH points to prompts/prompt.txt inside it.
+# Using absolute paths avoids issues when the backend is started from a
+# different working directory.
 BACKEND_DIR   = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PROMPT_PATH   = os.path.join(BACKEND_DIR, "prompts", "prompt.txt")
 
@@ -54,6 +71,12 @@ class ContextRetriever:
         # context.txt lives next to the source file being analysed.
         # It contains the ADR and any developer feedback from previous runs.
         # If it does not exist or is empty, we skip it.
+        
+        # context_section starts empty. It will only be filled if:
+        #   (a) request.file_path is a valid path (not "unknown")
+        #   (b) a context.txt file exists next to the source file
+        #   (c) that context.txt contains at least one feedback entry
+        #       detected by the presence of the word "verdict:"
         context_section = ""
 
         if request.file_path and request.file_path != "unknown":

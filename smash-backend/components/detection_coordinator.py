@@ -39,13 +39,6 @@ Without validation, bad data could travel all the way to the
 LLM and cause confusing errors. Catching problems early at
 the entry point gives clearer error messages and saves time.
 
-LANGUAGE INDEPENDENCE CHANGE:
-------------------------------
-The old version only accepted Java code and had a hardcoded
-error message mentioning Java. Now it accepts any language
-and stores the language in the DetectionRequest so every
-component downstream can use it.
-
 Position in pipeline:
 ---------------------
 VS Code Extension
@@ -152,18 +145,16 @@ class DetectionCoordinator:
         # or "Unknown"                → use "Unknown" if empty string after strip
         language = raw_data.get("language", "Unknown").strip() or "Unknown"
 
-        # ── Step 7: Extract and normalise the file path ───────────────────────────────
+        # ── Step 7: Extract and normalise the file path ──────────────────────
         # The file path is sent by the VS Code extension so the backend knows
         # which context.txt to read for this specific file.
+        # Example: "C:/Users/.../test-java-files/akhq_7201.java"
+        #          → used to find akhq_7201_context.txt in the same folder
         file_path = raw_data.get("file_path", "unknown").strip() or "unknown"
-        # ── Step 7: Log what was received ─────────────────────────────────────
-        print(f"[DetectionCoordinator] Validated payload:")
-        print(f"  Class    : {class_name}")
-        print(f"  Language : {language}")
-        print(f"  File     : {file_path}")
-        print(f"  Code size: {len(code)} characters")
 
-        # ── Step 8: Build and return the DetectionRequest ─────────────────────
+        # ── Step 8: Log what was received ─────────────────────────────────────
+
+        # ── Step 9: Build and return the DetectionRequest ─────────────────────
         # We now have clean, validated data. We wrap it into a DetectionRequest
         # object and return it. The other fields (prompt, model_name, etc.)
         # will be filled in by the subsequent components in the pipeline.

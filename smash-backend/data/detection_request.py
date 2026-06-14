@@ -14,7 +14,7 @@ Think of it as a "package" or "envelope" that carries
 all the information needed to perform one smell analysis:
   - The source code
   - The class name
-  - The programming language  ← NEW (was always assumed Java before)
+  - The programming language  
   - The architecture context (prompts)
   - The model configuration (which LLM to use)
 
@@ -77,22 +77,15 @@ class DetectionRequest:
     # The programming language of the source file.
     # Sent by the VS Code extension using VS Code's built-in language detection.
     # Example: "Java", "Python", "C#", "C++", "TypeScript", "JavaScript"
-    #
-    # WHY THIS FIELD EXISTS:
-    # The old version hardcoded "Java" everywhere — in the prompt, in the
-    # source code metadata extraction, and in the extension's file filter.
-    # Now that we support multiple languages, we carry the language through
-    # the pipeline so every component can use it where needed.
-    #
-    # DEFAULT: "Unknown" — if the extension does not send this field,
-    # the DetectionCoordinator will default to "Unknown" and the LLM
-    # will still attempt analysis based on the code content alone.
+    # Defaults to "Unknown" if the extension does not send this field —
+    # the LLM will still attempt analysis based on the code content alone.
     language: str = "Unknown"
 
     # ── File path ─────────────────────────────────────────────────────────────────
     # The absolute path of the file being analysed.
     # Used by ContextRetriever to find the correct context.txt for this file.
     # Example: "C:/Users/KIIT0001/Desktop/smash-project-v2/test-java-files/akhq_7201.java"
+    
     file_path: str = "unknown"
     # ── Architecture context ──────────────────────────────────────────────────
     # The filled-in prompt that will be sent to the LLM.

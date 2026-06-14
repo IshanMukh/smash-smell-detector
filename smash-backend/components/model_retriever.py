@@ -69,9 +69,14 @@ from data.detection_request import DetectionRequest
 # MAX_TOKENS      : Maximum number of words/tokens the LLM can generate.
 #                  2048 is enough for even large smell reports.
 #
-# REQUEST_TIMEOUT : Maximum seconds to wait for Ollama to respond.
-#                  300 seconds = 5 minutes. Needed because CPU inference is slow.
+# REQUEST_TIMEOUT : Set to None — Ollama is allowed to take as long as it
+#                  needs. This is intentional because inference speed depends
+#                  on hardware. None means "wait forever" in Python's requests.
+# NOTE: OLLAMA_BASE_URL currently points to a Google Colab ngrok tunnel.
 
+# This URL changes every time the Colab session reconnects.
+# For local mode, change this to: "http://localhost:11434/api/generate"
+# For permanent deployment, this would point to an AWS EC2 or similar host.
 OLLAMA_BASE_URL  = "https://skincare-monogamy-drapery.ngrok-free.dev/api/generate"
 DEFAULT_MODEL    = "llama3.1:8b"
 TEMPERATURE      = 0.1

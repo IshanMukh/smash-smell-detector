@@ -97,7 +97,11 @@ class ResultsPublisher:
             "class_name": request.class_name,  # Which class was analysed
             "count"     : len(request.smells)  # How many smells were found
         }
-
+        
+    # _build_summary is a private helper method (underscore prefix convention).
+    # It is only called by publish() above and should not be called directly
+    # from outside this class. Keeping it private makes the public interface
+    # of ResultsPublisher clean — only publish() is meant to be used externally.   
     def _build_summary(self, class_name: str, smells: list) -> str:
         """
         Builds a one-line human readable summary of the results.

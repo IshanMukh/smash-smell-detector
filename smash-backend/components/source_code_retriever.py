@@ -35,22 +35,6 @@ This component is designed to be EASILY EXPANDABLE —
 in the future, you could add Git integration here without
 changing any other component.
 
-LANGUAGE INDEPENDENCE CHANGE:
-------------------------------
-The old version extracted Java-specific metadata:
-  - Java package name  (package com.example.myapp;)
-  - Java class count   (regex for "class ClassName")
-
-Now it is language-aware:
-  - For Java    : still extracts package name + class count
-  - For Python  : counts "class" and "def" declarations
-  - For C#      : counts "class" and "namespace" declarations
-  - For others  : does a simple generic line/class count
-
-This keeps the metadata useful and accurate for each language
-without breaking anything — the pipeline still gets the same
-DetectionRequest back, just with better logs.
-
 Position in pipeline:
 ---------------------
 Detection Coordinator
@@ -142,9 +126,15 @@ class SourceCodeRetriever:
         return request
 
     # ── LANGUAGE-SPECIFIC METADATA HELPERS ────────────────────────────────────
-    # Each method below handles one language family.
+    
+    # Each method below is private (underscore prefix) because they are
+    # internal helpers only meant to be called by retrieve() above.
     # They all return a dict of { "label": value } pairs for logging.
-    # To add a new language, just add a new method and a new elif above.
+    #
+    # To add a new language:
+    #   1. Add a new elif in retrieve() pointing to a new helper method
+    #   2. Write the helper method below following the same pattern
+    #   No other file needs to change.
 
     def _extract_java_metadata(self, code: str) -> dict:
         """
