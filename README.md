@@ -11,7 +11,7 @@ It supports **Java, Python, C#, C++, TypeScript, and JavaScript**.
 
 ## What is an Architectural Smell?
 
-An architectural smell is not a bug — it does not break anything today. It is a structural warning sign that the code will become hard to maintain, test, or extend in the future. For example:
+An architectural smell is not a bug , it does not break anything today. It is a structural warning sign that the code will become hard to maintain, test, or extend in the future. For example:
 
 - **God Class** — one class is doing too many things at once
 - **Hub-Like Dependency** — one class is connected to everything else, becoming a single point of failure
@@ -27,7 +27,7 @@ SMASH currently detects seven types: God Class, Hub-Like Dependency, Cyclic Depe
 When you press Ctrl+S on a supported file, this is what happens:
 
 1. The VS Code extension reads the file and extracts all class names using language-specific regular expressions
-2. For each class, it extracts just that class's code using brace matching — so the LLM only ever sees one class at a time
+2. For each class, it extracts just that class's code using brace matching , so the LLM only ever sees one class at a time
 3. Each class is sent individually to a Python Flask backend running on localhost:5000
 4. The backend passes it through a 7-step pipeline: validation → metadata logging → prompt building → model config → LLM call → result formatting → CSV logging
 5. The LLM analyses the class and returns a JSON list of smells
