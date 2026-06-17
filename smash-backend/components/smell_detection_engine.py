@@ -150,7 +150,7 @@ class SmellDetectionEngine:
         # We call _parse_llm_response() to extract the JSON array from the text
         # and convert it into a Python list of smell dictionaries.
         smells = self._parse_llm_response(raw_text)
-
+        smells = self._filter_false_positives(smells, request.code)
         # ── Step 8: Store the parsed smells in the DetectionRequest ───────────
         request.smells = smells
         print(f"[SmellDetectionEngine] Detection complete")
@@ -208,3 +208,151 @@ class SmellDetectionEngine:
         print(f"[SmellDetectionEngine] WARNING: LLM did not return JSON.")
         print(f"[SmellDetectionEngine] Raw response preview: {raw_response[:300]}")
         return []
+    
+    def _filter_false_positives(self, smells: list, code: str) -> list:
+        """
+        Post-processing filter that removes likely false positives.
+
+        Why do we need this?
+        ---------------------
+        Smaller LLMs tend to flag simple data classes, DTOs, and value objects
+        as God Class or Hub-Like Dependency even when explicitly told not to.
+        This filter catches those cases by counting methods and dependencies
+        directly from the class code using regex, without relying on the LLM.
+
+        Rules applied:
+        - God Class: removed if the class has fewer than 5 public methods
+        - Hub-Like Dependency: removed if fewer than 6 real external dependencies
+        - Severity 0: removed always (LLM sometimes returns 0 severity smells)
+        - Empty description: removed always
+        """
+
+        if not smells:
+            return []
+
+        filtered = []
+
+        # Count public methods in the class code using regex
+        # This matches method declarations like: public void myMethod(
+        # or public String myMethod( etc.
+        method_count = len(re.findall(
+            r'\b(?:public|protected)\s+(?:static\s+)?(?:final\s+)?'
+            r'(?:[\w<>\[\]]+)\s+(\w+)\s*\(',
+            code
+        ))
+
+        # Count meaningful external dependencies
+        # We look for import statements and field type declarations
+        # and exclude standard Java/language utility types
+        EXCLUDED_TYPES = {
+            'string', 'list', 'map', 'set', 'optional', 'boolean', 'integer',
+            'long', 'int', 'void', 'object', 'logger', 'log', 'override',
+            'string[]', 'byte[]', 'collection', 'arraylist', 'hashmap',
+            'iterator', 'enum', 'class', 'exception', 'error'
+        }
+
+        # Extract unique import names (last part of import path)
+        imports = re.findall(r'import\s+[\w.]+\.(\w+);', code)
+        # Count field-level injected dependencies in addition to imports
+        injected_fields = re.findall(
+            r'@(?:Inject|Autowired|Named|Value)\s+(?:private|protected|public)?\s+'
+            r'(?:final\s+)?(\w+)',
+            code
+        )
+        real_dependencies = {
+            imp for imp in imports + injected_fields
+            if imp.lower() not in EXCLUDED_TYPES and len(imp) > 2
+        }
+        dependency_count = len(real_dependencies)
+
+        print(f"[SmellDetectionEngine] Filter: {method_count} methods, "
+            f"{dependency_count} real dependencies")
+
+        for smell in smells:
+            category  = smell.get("smell_category", "").lower()
+            severity  = smell.get("smell_severity", 0)
+            desc      = smell.get("smell_description", "").strip()
+
+            # Rule 1: Remove zero severity smells — the LLM is saying itself there is no smell
+            if severity == 0:
+                print(f"[SmellDetectionEngine] Filtered out (severity 0): {smell.get('smell_category')}")
+                continue
+
+            # Rule 2: Remove empty description smells
+            if not desc:
+                print(f"[SmellDetectionEngine] Filtered out (empty description): {smell.get('smell_category')}")
+                continue
+            # Rule 3: God Class requires 5+ public methods
+            # the description must mention at least 2 distinct responsibility types
+            if "god" in category:
+                if method_count < 5:
+                    print(f"[SmellDetectionEngine] Filtered out God Class "
+                        f"(only {method_count} methods found)")
+                    continue
+                # Check that description mentions multiple distinct responsibility keywords
+                responsibility_keywords = ["data access", "business logic", "serialization", 
+                                        "coordination", "deserialization", "pagination",
+                                        "consuming", "producing", "searching", "filtering"]
+                matched = [kw for kw in responsibility_keywords if kw in desc.lower()]
+                if len(matched) < 2:
+                    print(f"[SmellDetectionEngine] Filtered out God Class "
+                        f"(only {len(matched)} responsibility types named in description)")
+                    continue
+
+            # Rule 4: Hub-Like Dependency requires 6+ real external dependencies
+            if "hub" in category:
+                if dependency_count < 6:
+                    print(f"[SmellDetectionEngine] Filtered out Hub-Like "
+                        f"(only {dependency_count} real dependencies found)")
+                    continue
+
+            # Rule 5: Unstable Dependency requires at least 3 real dependencies
+            # A class with 1-2 dependencies cannot meaningfully show instability
+            if "unstable" in category:
+                if dependency_count < 3:
+                    print(f"[SmellDetectionEngine] Filtered out Unstable Dependency "
+                        f"(only {dependency_count} real dependencies found)")
+                    continue
+
+            # Rule 6: Cyclic Dependency — only keep if description explicitly
+            # names both directions of the cycle. Generic descriptions are removed.
+            if "cyclic" in category and "hierarchy" not in category:
+                if "cycle" not in desc.lower() and "circular" not in desc.lower() and "each other" not in desc.lower():
+                    print(f"[SmellDetectionEngine] Filtered out Cyclic Dependency "
+                        f"(no cycle evidence in description)")
+                    continue
+
+            # Rule 7: Cyclic Hierarchy — only keep if description mentions
+            # a supertype depending on a subtype explicitly
+            if "cyclic hierarchy" in category:
+                if "subtype" not in desc.lower() and "child" not in desc.lower() and "subclass" not in desc.lower():
+                    print(f"[SmellDetectionEngine] Filtered out Cyclic Hierarchy "
+                        f"(no subtype reference in description)")
+                    continue
+
+            # Rule 8: Deep Hierarchy requires at least 2 inheritance levels visible
+            # We count "extends" and "implements" keywords in the class declaration
+            if "deep" in category:
+                inheritance_count = len(re.findall(r'\bextends\b|\bimplements\b', code))
+                if inheritance_count < 2:
+                    print(f"[SmellDetectionEngine] Filtered out Deep Hierarchy "
+                        f"(only {inheritance_count} inheritance keywords found)")
+                    continue
+
+            # Rule 9: Wide Hierarchy — only keep if description names
+            # at least 2 sibling classes explicitly
+            if "wide" in category:
+                # Count capitalized class names mentioned in the description
+                # as a proxy for whether siblings were actually named
+                named_classes = re.findall(r'\b[A-Z][a-zA-Z]+\b', desc)
+                if len(named_classes) < 2:
+                    print(f"[SmellDetectionEngine] Filtered out Wide Hierarchy "
+                        f"(no sibling classes named in description)")
+                    continue
+
+            filtered.append(smell)
+
+        print(f"[SmellDetectionEngine] Filter: {len(smells)} smells → "
+            f"{len(filtered)} after filtering")
+        return filtered
+        
